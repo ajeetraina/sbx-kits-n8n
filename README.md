@@ -106,7 +106,8 @@ sbx kit inspect ./sbx-kits-n8n
 ## Public webhooks
 
 Docker Sandboxes forward n8n to `localhost`, so externally-delivered webhooks are
-not reachable out of the box. Put a tunnel in front of the forwarded port:
+not reachable out of the box. Run the tunnel **on your host**, in front of the
+forwarded port:
 
 ```sh
 port=$(sbx ls | grep n8n-demo | grep -oE '127.0.0.1:[0-9]+' | cut -d: -f2)
@@ -115,6 +116,14 @@ cloudflared tunnel --url "http://localhost:$port"    # or: ngrok http $port
 
 Then set n8n's `WEBHOOK_URL` to the tunnel URL (fork the kit and add it to the
 startup hook's environment, or recreate with that value).
+
+> **Why host-side, not a tunnel kit inside the sandbox?** A sandbox's only
+> egress is an HTTP/HTTPS forward proxy (`gateway.docker.internal:3128`) with
+> TLS interception. `cloudflared` reaches Cloudflare's edge over a raw
+> TCP/QUIC connection on port 7844, which that proxy does not carry — so a
+> `cloudflared` process *inside* the sandbox cannot register a tunnel (it also
+> can't fetch its own binary past the MITM proxy). The host has normal
+> networking, so the tunnel belongs there, pointed at the forwarded port.
 
 ## Letting workflows reach the internet
 
@@ -145,12 +154,19 @@ docker buildx build . -f n8n.yaml --build-arg N8N_VERSION=2.47.7 ...
 
 ## Publish
 
+Published as a multi-arch (amd64 + arm64) image at
+[`docker.io/ajeetraina777/n8n`](https://hub.docker.com/r/ajeetraina777/n8n):
+
 ```sh
 docker buildx build . -f n8n.yaml --platform linux/amd64,linux/arm64 --push \
   -t docker.io/ajeetraina777/n8n:2.47.7 -t docker.io/ajeetraina777/n8n:latest
 ```
 
 Push both platforms in one invocation so the pushed tag is a multi-arch index.
+
+> If the base pull hits `docker.n8n.io`'s anonymous rate limit (HTTP 429), add
+> `--build-arg N8N_IMAGE=docker.io/n8nio/n8n` to pull the identical image from
+> Docker Hub under your authenticated limit.
 
 ## How it compares to the cloud guide
 

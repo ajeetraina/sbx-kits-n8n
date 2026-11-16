@@ -3,8 +3,13 @@
 # NOT declare sbx@1: the host runs the image's own entrypoint
 # (tini -- /docker-entrypoint.sh, which starts the n8n server) as PID 1, so the
 # bash/agent-user platform floor an agent launch would need does not apply here.
+# N8N_IMAGE is overridable only to dodge build-time pull rate limits: n8n
+# publishes the same image (identical digest) to Docker Hub as docker.io/n8nio/n8n,
+# which an authenticated pull fetches under a higher limit. The resulting layers
+# are identical either way; the default is n8n's canonical registry.
+ARG N8N_IMAGE=docker.n8n.io/n8nio/n8n
 ARG N8N_VERSION=2.47.7
-FROM docker.n8n.io/n8nio/n8n:${N8N_VERSION}
+FROM ${N8N_IMAGE}:${N8N_VERSION}
 
 # The base already runs as the unprivileged `node` user (uid 1000, home
 # /home/node), which is where the n8n data volume mounts.
