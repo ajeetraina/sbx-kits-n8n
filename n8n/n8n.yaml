@@ -1,0 +1,102 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+kind: workload
+displayName: n8n
+description: n8n workflow automation, running as a long-lived service in a sandbox
+author: "Ajeet Singh Raina <ajeetraina@gmail.com>"
+sourceUrl: https://github.com/n8n-io/n8n
+
+# One value drives the pulled image tag, the provide and the published version.
+version: "${{ kit.args.version }}"
+
+args:
+  version:
+    default: "2.47.7"
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    description: n8n release to run (selects the docker.n8n.io/n8nio/n8n image tag)
+    buildArg: N8N_VERSION
+
+provides: ["n8n@${{ kit.args.version }}"]
+
+# No `requires`: n8n ships complete in its own image (Node bundled). It needs
+# nothing from another kit in the composition, so declaring a requirement here
+# would only make this workload refuse to compose. The silence is deliberate.
+
+capabilities:
+  # NOTE: sbx@1 is intentionally NOT declared. n8n is a service, not an agent:
+  # we want the image's own entrypoint (the n8n server) to run as PID 1 rather
+  # than have the host replace it with an agent launcher.
+
+  # Keep the sandbox alive after the launching client detaches — n8n is a
+  # server, not a session. Required: auto-stop would kill running workflows.
+  - type: com.docker.sandbox/long-running@1
+
+  # sbx runs a keepalive as PID 1 and does NOT auto-start the image entrypoint
+  # for a detached workload, so the n8n server has to be launched explicitly on
+  # every boot. The config env is deny-by-default and startup hooks do not
+  # inherit image ENV, so the n8n settings that must be right are exported
+  # inline in the command; only the proxy vars (needed for workflow egress
+  # through the sandbox proxy) are passed through by name.
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      # The n8n image is Alpine/busybox with no /bin/bash, which is what the
+      # host would otherwise open on attach (`sbx run <name>`) / `sbx exec -it`.
+      # Point interactive sessions at the shell that exists.
+      interactive: [/bin/sh]
+      startup:
+        # The volume mount root is created by the runtime; make it writable by
+        # the node user (uid 1000) that n8n runs as before n8n touches it.
+        - command: [sh, -c, "chown node:node /home/node/.n8n"]
+          user: "0"
+          background: false
+          description: Own the n8n data volume mount root as node
+        # Launch the n8n server detached; long-running@1 keeps it up.
+        - command:
+            - sh
+            - -c
+            - >
+              export N8N_SECURE_COOKIE=false N8N_DIAGNOSTICS_ENABLED=false
+              N8N_VERSION_NOTIFICATIONS_ENABLED=false N8N_PORT=5678
+              N8N_LISTEN_ADDRESS=0.0.0.0;
+              exec /usr/local/bin/n8n start >>/home/node/.n8n/n8n.log 2>&1
+          # The n8n image's uid-1000 user is `node`, not the `agent` the host
+          # assumes by default — name it so the hook does not `su agent`.
+          user: node
+          background: true
+          env:
+            - HTTP_PROXY
+            - HTTPS_PROXY
+            - NO_PROXY
+            - http_proxy
+            - https_proxy
+            - no_proxy
+          description: Start the n8n server in the background
+
+  # The n8n editor / REST / webhook endpoint. The runtime assigns the host
+  # port; find it with `sbx ports <sandbox>`.
+  - type: com.docker.sandbox/port@1
+    config:
+      name: n8n-editor
+      container: 5678
+      transport: tcp
+
+  # Persist workflows, credentials and the encryption key across stop/recreate.
+  # n8n runs as uid 1000 (node) with home /home/node.
+  - type: com.docker.sandbox/volume@1
+    config:
+      path: /home/node/.n8n
+      size: 2g
+      mode: "0755"
+
+  # Runtime egress. The editor boots fully offline (diagnostics and version
+  # notifications are disabled in the image), so the default allow list only
+  # covers n8n's own service host used by the templates panel. Hosts that your
+  # *workflows* reach (HTTP Request nodes, API integrations) are not known at
+  # build time — grant them at runtime with
+  #   sbx policy allow network <host>
+  # or fork this kit and extend the list below.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - api.n8n.io

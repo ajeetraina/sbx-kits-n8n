@@ -1,0 +1,7 @@
+# build / verification artifacts
+*-layout/
+*.tar
+*-push.json
+
+# macOS
+.DS_Store
