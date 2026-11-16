@@ -168,6 +168,27 @@ Push both platforms in one invocation so the pushed tag is a multi-arch index.
 > `--build-arg N8N_IMAGE=docker.io/n8nio/n8n` to pull the identical image from
 > Docker Hub under your authenticated limit.
 
+### CI
+
+[`.github/workflows/publish.yml`](.github/workflows/publish.yml) publishes on a
+semver git tag: it gates on `kit-tck` conformance, builds + pushes the
+multi-arch image, and signs it keylessly with `cosign`.
+
+```sh
+git tag 2.47.7 && git push origin 2.47.7
+```
+
+Needs two repo secrets: `DOCKERHUB_USER` and `DOCKERHUB_PAT` (an access token
+with read/write). The tag name becomes both the n8n version and the image tag.
+
+Verify a signature (keyless — the identity is the workflow, not a key):
+
+```sh
+cosign verify docker.io/ajeetraina777/n8n:2.47.7 \
+  --certificate-identity 'https://github.com/ajeetraina/sbx-kits-n8n/.github/workflows/publish.yml@refs/tags/2.47.7' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
 ## How it compares to the cloud guide
 
 | | Sandboxer (the guide) | Docker Sandboxes (this kit) |

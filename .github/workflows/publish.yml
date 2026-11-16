@@ -1,0 +1,107 @@
+name: Publish Kit
+
+# Publish the v3 n8n kit to Docker Hub as a multi-arch OCI artifact, then sign
+# it keylessly with cosign. A v3 kit is an OCI image and publishing IS the build,
+# so this uses `docker buildx build --push` (there is no `sbx kit push` for v3).
+# kit-tck gates every push: a kit that fails conformance never reaches the
+# registry.
+#
+# Triggered by a semver git tag (e.g. `git tag 2.47.7 && git push --tags`); the
+# tag drives the n8n version, the image tag and the cosign identity. Can also be
+# run manually with an explicit version.
+#
+# Requires two repo secrets:
+#   DOCKERHUB_USER  - Docker Hub username (also the image namespace)
+#   DOCKERHUB_PAT   - Docker Hub access token with read/write on the repo
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: n8n version to build and publish (also the image tag)
+        required: true
+        default: "2.47.7"
+
+permissions:
+  contents: read
+  id-token: write   # keyless cosign signing takes its identity from the OIDC token
+
+env:
+  IMAGE: ${{ secrets.DOCKERHUB_USER }}/n8n
+
+jobs:
+  publish-kit:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        # On a tag push, GITHUB_REF_NAME is the tag; on manual runs, the input.
+        run: echo "KIT_VERSION=${{ inputs.version || github.ref_name }}" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        # Before the builds so even the base pull is authenticated, dodging
+        # docker.n8n.io's anonymous rate limit via the identical Docker Hub image.
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_PAT }}
+
+      - name: Conformance (kit-tck)
+        # Build a single-arch OCI layout and validate it before anything is
+        # pushed. kit-tck resolves the version tag out of the layout (last arg).
+        run: |
+          set -euxo pipefail
+          go install github.com/docker/sandbox-kit-spec/v3/cmd/kit-tck@latest
+          docker buildx build . \
+            -f n8n.yaml \
+            -t "n8n:${KIT_VERSION}" \
+            --build-arg "N8N_VERSION=${KIT_VERSION}" \
+            --build-arg N8N_IMAGE=docker.io/n8nio/n8n \
+            --output type=oci,dest=/tmp/n8n-layout,tar=false
+          "$(go env GOPATH)/bin/kit-tck" validate --layout /tmp/n8n-layout "${KIT_VERSION}"
+
+      - name: Build and push (multi-arch)
+        run: |
+          set -euxo pipefail
+          docker buildx build . \
+            -f n8n.yaml \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg "N8N_VERSION=${KIT_VERSION}" \
+            --build-arg N8N_IMAGE=docker.io/n8nio/n8n \
+            --push \
+            -t "${IMAGE}:${KIT_VERSION}" \
+            -t "${IMAGE}:latest" \
+            --metadata-file /tmp/n8n-push.json
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Sign the published image (keyless)
+        run: |
+          set -euxo pipefail
+          DIGEST="$(jq -r '."containerimage.digest"' /tmp/n8n-push.json)"
+          # --recursive signs the multi-arch index AND each platform manifest,
+          # so a consumer verifying a platform digest directly still finds a
+          # signature.
+          cosign sign --yes --recursive "${IMAGE}@${DIGEST}"
+
+      - name: Sync Docker Hub overview page
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_PAT }}
+          repository: ${{ secrets.DOCKERHUB_USER }}/n8n
+          readme-filepath: ./README.md
+          short-description: "n8n workflow automation as a Docker Sandboxes (sbx) v3 kit"
