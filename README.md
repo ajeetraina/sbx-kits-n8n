@@ -6,11 +6,6 @@ a **v3 workload kit**: one descriptor (`n8n.yaml`) packages the official n8n
 image so that `sbx run .` builds the kit, starts the n8n server, persists its
 data, and forwards its editor/webhook port to your host.
 
-Inspired by [Running n8n in a cloud sandbox](https://sandboxer.com/guides/run-n8n-in-a-cloud-sandbox),
-adapted to Docker Sandboxes. The one difference from that cloud guide: Docker's
-`sbx` exposes n8n via a **localhost port-forward on an ephemeral host port**, not
-a public HTTPS URL — see [Public webhooks](#public-webhooks).
-
 ## Architecture
 
 ```mermaid
