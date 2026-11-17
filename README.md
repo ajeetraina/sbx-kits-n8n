@@ -62,8 +62,17 @@ launcher.
 ### From the published image
 
 ```sh
-sbx run docker.io/ajeetraina777/n8n:2.47.7
+sbx create docker.io/ajeetraina777/n8n:2.47.7
+sbx ls | grep n8n               # find the forwarded host port
 ```
+
+> Use `sbx create`, **not** `sbx run`. This is a workload kit (no `sbx@1`): n8n
+> runs as a detached background service, so there is no agent to attach to.
+> `sbx run` creates the sandbox and then tries to open an interactive agent
+> session (`chdir /home/agent` + `exec /bin/bash`), which fails with `code 127`
+> because the Alpine-based n8n image has neither `/home/agent` nor `/bin/bash`.
+> The sandbox itself is created and n8n starts fine — only the attach fails. Use
+> `sbx exec -it <name> /bin/sh` if you need a shell inside.
 
 ### From source
 
@@ -83,10 +92,14 @@ sbx ls | grep n8n-demo          # find the forwarded host port
 
 ```sh
 sbx stop n8n-demo               # pause; the volume is preserved
-sbx run  n8n-demo               # resume — the startup hook relaunches n8n (new port)
+sbx run -d n8n-demo             # resume detached — the startup hook relaunches n8n (new port)
 sbx exec -it n8n-demo /bin/sh   # shell inside (Alpine: sh, not bash)
 sbx rm -f n8n-demo              # delete the sandbox and its volume
 ```
+
+> Resume with `sbx run -d` (detached), not a bare `sbx run` — the `-d` skips the
+> interactive agent attach this workload does not have, which would otherwise
+> fail with `code 127`.
 
 ## Build & verify
 
