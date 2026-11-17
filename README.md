@@ -57,8 +57,8 @@ launcher.
 ### From the published image
 
 ```sh
-sbx create docker.io/ajeetraina777/n8n:2.47.7
-sbx ls | grep n8n               # find the forwarded host port
+sbx create --name n8n-demo docker.io/ajeetraina777/n8n:2.47.7
+sbx ls | grep n8n-demo          # find the forwarded host port
 ```
 
 > Use `sbx create`, **not** `sbx run`. This is a workload kit (no `sbx@1`): n8n
@@ -86,15 +86,16 @@ sbx ls | grep n8n-demo          # find the forwarded host port
 ### Lifecycle
 
 ```sh
-sbx stop n8n-demo               # pause; the volume is preserved
-sbx run -d n8n-demo             # resume detached — the startup hook relaunches n8n (new port)
-sbx exec -it n8n-demo /bin/sh   # shell inside (Alpine: sh, not bash)
-sbx rm -f n8n-demo              # delete the sandbox and its volume
+sbx stop n8n-demo                    # pause; the volume is preserved
+sbx run -d --name n8n-demo           # resume detached — the startup hook relaunches n8n (new port)
+sbx exec -it n8n-demo /bin/sh        # shell inside (Alpine: sh, not bash)
+sbx rm -f n8n-demo                   # delete the sandbox and its volume
 ```
 
-> Resume with `sbx run -d` (detached), not a bare `sbx run` — the `-d` skips the
-> interactive agent attach this workload does not have, which would otherwise
-> fail with `code 127`.
+> Resume with `sbx run -d --name` (detached), not a bare `sbx run` — the `-d`
+> skips the interactive agent attach this workload does not have (which would
+> fail with `code 127`), and `--name` avoids the deprecated positional form
+> `sbx run <name>`.
 
 ## Build & verify
 
